@@ -1,0 +1,36 @@
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - CSV_PATH=${GAMES_CSV_PATH:-/app/data/base_jogos.csv}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ALLOW_WEB=${ALLOW_WEB:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./base_jogos.csv:/app/data/base_jogos.csv:ro
+    networks: [ appnet ]
+  ui:
+    image: python:3.11-slim
+    working_dir: /ui
+    depends_on:
+      - api
+    env_file:
+      - .env
+    environment:
+      - API_URL=http://api:8000
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./streamlit_app:/ui
+      - ./requirements.txt:/requirements.txt:ro
+    ports:
+      - "8501:8501"
+    command: bash -lc "pip install --no-cache-dir -r /requirements.txt && streamlit run app.py --server.address=0.0.0.0"
+    networks: [ appnet ]
+
+networks:
+  appnet:
+    driver: bridge
+
