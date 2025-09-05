@@ -166,16 +166,79 @@ with tabs[1]:
         st.rerun()
 
     # Renderer: single, non-stacking result area
+    # --- [ADD] util: histograma de médias ponderadas para franquias ---
+    def _render_franchise_histogram(payload):
+        import math
+        import plotly.graph_objects as go
+        import pandas as pd
+        from streamlit import caption, plotly_chart, markdown
+
+        fw = (payload.get("meta") or {}).get("franchise_weighted") or {}
+        u  = fw.get("user_wavg")
+        c  = fw.get("critic_wavg")
+        uc = (fw.get("user_count_sum") or 0)
+        cc = (fw.get("critic_count_sum") or 0)
+
+        # calcula "Geral (wavg)" com pesos das contagens; fallback: média simples dos disponíveis
+        overall = None
+        nums, weights = [], []
+        if u is not None and uc > 0:
+            nums.append(float(u)); weights.append(float(uc))
+        if c is not None and cc > 0:
+            nums.append(float(c)); weights.append(float(cc))
+        if weights:
+            overall = sum(n*w for n, w in zip(nums, weights)) / sum(weights)
+        elif nums:
+            overall = sum(nums) / len(nums)
+
+        # prepara dados (só inclui métricas que existem)
+        bars = []
+        if u is not None: bars.append(("Usuários (wavg)", float(u)))
+        if c is not None: bars.append(("Crítica (wavg)", float(c)))
+        if overall is not None: bars.append(("Geral (wavg)", float(overall)))
+        if not bars:
+            return  # nada para plotar
+
+        x = [b[0] for b in bars]
+        y = [round(b[1], 2) for b in bars]
+
+        fig = go.Figure(go.Bar(
+            x=x, y=y,
+            marker=dict(color="white"),     # barras brancas
+            hovertemplate="%{x}: %{y:.2f}<extra></extra>",
+        ))
+        fig.update_layout(
+            template="plotly_dark",
+            height=280,
+            margin=dict(l=16, r=16, t=16, b=16),
+            yaxis=dict(title="Média ponderada", rangemode="tozero"),
+            xaxis=dict(title=""),
+        )
+
+        markdown("#### Médias ponderadas (histograma)")
+        plotly_chart(fig, use_container_width=True)
+        caption(f"Base: usuários n={uc}, críticos n={cc}")
+
     def render_result(res: dict, nlq_used: str):
         st.subheader("🧠 Pergunta:")
         st.write(nlq_used)
 
         st.subheader("Resumo:")
-        # Check for notice first, then fall back to default message
-        summary = res.get("notice") or res.get("message") or "Processado com sucesso"
-        st.info(summary)
+        # --- Agent NL answer (chat bubble) ---
+        nl_summary = res.get("nl") or res.get("summary") or res.get("notice") or res.get("message") or ""
+        if nl_summary:
+            st.markdown(
+                """
+                <div style="background-color:#0f2033;border-radius:10px;padding:14px 16px;margin:8px 0;display:flex;gap:10px;align-items:flex-start;">
+                  <div style="flex:0 0 22px;font-size:18px;line-height:22px;">🤖</div>
+                  <div style="color:#d9e2ec;font-size:15px;">{}</div>
+                </div>
+                """.format(nl_summary),
+                unsafe_allow_html=True
+            )
 
-        if res.get("mode") == "dataset" and res.get("sql"):
+        # SQL expander under bubble when present
+        if res.get("sql"):
             with st.expander("SQL executado", expanded=False):
                 st.code(res["sql"], language="sql")
 
@@ -183,26 +246,39 @@ with tabs[1]:
         rows = res.get("rows") or []
         if cols and rows:
             df = pd.DataFrame(rows, columns=cols)
-            st.dataframe(df, use_container_width=True)
 
-            # Chart: orange→yellow palette for sales columns
-            metric_cols = [c for c in df.columns if c.endswith("_Sales")]
-            ycol = metric_cols[0] if metric_cols else None
-            if ycol and "Name" in df.columns:
-                fig = px.bar(
-                    df,
-                    x="Name",
-                    y=ycol,
-                    title=f"Top por {ycol.replace('_', ' ').title()}",
-                    color_discrete_sequence=px.colors.sequential.YlOrBr,
-                )
-                fig.update_layout(
-                    xaxis_title="Nome",
-                    yaxis_title=ycol.replace('_', ' ').title(),
-                    margin=dict(l=10, r=10, t=60, b=10),
-                )
-                fig.update_xaxes(tickangle=-30)
-                st.plotly_chart(fig, use_container_width=True)
+            # Minimal table for rankings
+            if res.get("kind") == "rankings":
+                metric_candidates = [c for c in df.columns if c not in ("Rank", "Name", "year")]
+                if metric_candidates:
+                    metric = metric_candidates[-1]
+                    df = df[["Rank", "Name", "year", metric]]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # --- [CALL] histograma de franquia quando aplicável ---
+            if res.get("kind") == "franchise_avg":
+                _render_franchise_histogram(res)
+
+            # Charts: for rankings, plot Name vs selected metric
+            if res.get("kind") == "rankings":
+                metric_candidates = [c for c in df.columns if c not in ("Rank", "Name", "year")]
+                if metric_candidates and "Name" in df.columns:
+                    ycol = metric_candidates[-1]
+                    df_sorted = df.sort_values(ycol, ascending=False)
+                    fig = px.bar(
+                        df_sorted,
+                        x="Name",
+                        y=ycol,
+                        title=f"Top por {ycol.replace('_', ' ').title()}",
+                        color_discrete_sequence=px.colors.sequential.YlOrBr,
+                    )
+                    fig.update_layout(
+                        xaxis_title="Nome",
+                        yaxis_title=ycol.replace('_', ' ').title(),
+                        margin=dict(l=10, r=10, t=60, b=10),
+                    )
+                    fig.update_xaxes(tickangle=-30)
+                    st.plotly_chart(fig, use_container_width=True)
 
     # Show result if we have one; otherwise show nothing (no "Sem resultados" noise)
     if st.session_state.agent["result"]:
