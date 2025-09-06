@@ -5,6 +5,7 @@ import re
 import duckdb
 import pandas as pd
 import time
+import logging
 
 from app.core.llm import chat
 from app.services.datastore import get_datastore
@@ -86,6 +87,40 @@ def ensure_table_registered(con: duckdb.DuckDBPyConnection | None = None) -> duc
     return con
 
 
+def run_franchise_total_sales(plan: Dict[str, Any]) -> Dict[str, Any]:
+    franchise = ((plan.get("filters") or {}).get("franchise") or "").replace("'", "''")
+    sql = f"""
+    SELECT
+      SUM(COALESCE(Global_Sales,0)) AS Global_Sales,
+      SUM(COALESCE(NA_Sales,0))     AS NA_Sales,
+      SUM(COALESCE(EU_Sales,0))     AS EU_Sales,
+      SUM(COALESCE(JP_Sales,0))     AS JP_Sales,
+      SUM(COALESCE(Other_Sales,0))  AS Other_Sales,
+      COUNT(*) AS Titles
+    FROM games
+    WHERE lower(Name) LIKE lower('%{franchise}%')
+    """
+    con = ensure_table_registered()
+    cur = con.execute(sql)
+    cols = [d[0] for d in cur.description]
+    rows = cur.fetchall()
+    rows_dict = [dict(zip(cols, r)) for r in rows]
+    chart = {
+        "type": "bar",
+        "x": "region",
+        "y": "sales",
+        "data": [
+            {"region": "Global", "sales": rows[0][0] if rows else 0},
+            {"region": "NA",     "sales": rows[0][1] if rows else 0},
+            {"region": "EU",     "sales": rows[0][2] if rows else 0},
+            {"region": "JP",     "sales": rows[0][3] if rows else 0},
+            {"region": "Other",  "sales": rows[0][4] if rows else 0},
+        ],
+    }
+    meta = {"metric_label": "Global_Sales"}
+    return {"sql": sql, "columns": cols, "rows": rows, "rows_dict": rows_dict, "chart": chart, "meta": meta}
+
+
 def _validate_sql(sql: str, intent: str) -> None:
     s = sql.strip().lower()
     if not (s.startswith("with") or s.startswith("select")):
@@ -95,8 +130,8 @@ def _validate_sql(sql: str, intent: str) -> None:
         raise ValueError("Only read-only statements allowed.")
     if intent == "rankings":
         # must aggregate, not dedup via partition
-        if "group by lower(name)" not in s:
-            raise ValueError("Rankings must aggregate by title with GROUP BY lower(Name).")
+        if "group by" not in s:
+            raise ValueError("Rankings devem agregar por título (GROUP BY).")
         if re.search(r"partition\s+by\s+lower\s*\(\s*name\s*\)", s):
             raise ValueError("Do not use PARTITION BY for dedup; aggregate with GROUP BY.")
 
@@ -128,12 +163,16 @@ def llm_build_sql_and_run(question: str, plan: Dict[str, Any]) -> Dict[str, Any]
     msg = [{"role":"system","content":SQL_AGENT_SYS_PROMPT},
            {"role":"user","content":json.dumps({"plan":plan}, ensure_ascii=False)}]
     j: Optional[Dict[str, Any]] = None
-    out = chat(msg, temperature=0.0)
-    if out:
-        try:
-            j = json.loads(out)
-        except Exception:
-            j = None
+    try:
+        out = chat(msg, temperature=0.0)
+        if out:
+            try:
+                j = json.loads(out)
+            except Exception:
+                j = None
+    except Exception as e:
+        logging.getLogger("nl2sql").warning("SQL-Agent LLM unavailable, using fallback. %s", e)
+        j = None
 
     # 2) Fallbacks per intent if LLM fails
     if not j:
@@ -262,6 +301,7 @@ def llm_build_sql_and_run(question: str, plan: Dict[str, Any]) -> Dict[str, Any]
 
     trace.append({"step":"postprocess","actions":["projection_order","rows_dict","meta_weights","hist" if meta.get("hist") else ""]})
 
+    meta["intent"] = plan.get("intent")
     return {"sql": sql, "columns": cols, "rows": rows, "rows_dict": rows_dict, "chart": chart, "meta": meta, "trace": trace}
 
 

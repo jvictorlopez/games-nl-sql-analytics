@@ -100,3 +100,29 @@ def summarize_out_of_domain(question: str) -> str:
         return out.strip()
     return ("Sua pergunta parece estar fora do escopo deste app (focado em dados de videogames). "
             "Tente: 'Top 10 vendas globais em 2010', 'Top 10 no Japão por User_Score', 'Média de nota da franquia Zelda'.")
+
+
+def summarize_not_found(question: str, filters: Dict[str, Any], suggestions: List[str]) -> str:
+    term = (filters or {}).get("name") or (filters or {}).get("franchise") or "o título"
+    if suggestions:
+        sug = "; ".join(suggestions[:5])
+        return (f"Não encontrei '{term}' na base. Tente um dos títulos parecidos: {sug}. "
+                f"Você também pode refazer a busca com outro nome ou parte do nome.")
+    return (f"Não encontrei '{term}' na base. Se quiser, refaça a busca com outra grafia "
+            f"ou peça um ranking/estatística geral.")
+
+
+def summarize_franchise_total_sales(question: str, filters: Dict[str, Any], rows: List[Dict[str, Any]]) -> str:
+    fam = (filters or {}).get("franchise") or "a franquia"
+    if not rows:
+        return f"Não consegui calcular as vendas totais de {fam.title()}."
+    r = rows[0]
+    try:
+        g = float(r.get("Global_Sales") or 0)
+        na = float(r.get("NA_Sales") or 0); eu = float(r.get("EU_Sales") or 0)
+        jp = float(r.get("JP_Sales") or 0); ot = float(r.get("Other_Sales") or 0)
+        t  = int(r.get("Titles") or 0)
+    except Exception:
+        g = na = eu = jp = ot = 0.0; t = 0
+    return (f"A franquia {fam.title()} soma {g:.2f} milhões globalmente "
+            f"(NA {na:.2f}, EU {eu:.2f}, JP {jp:.2f}, Outros {ot:.2f}; títulos considerados={t}).")

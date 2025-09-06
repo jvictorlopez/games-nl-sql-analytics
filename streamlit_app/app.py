@@ -237,6 +237,12 @@ with tabs[1]:
                 unsafe_allow_html=True
             )
 
+        # --- NEW: Raciocínio do Agente (between Resumo and SQL executado) ---
+        reasoning_txt = res.get("reasoning")
+        if reasoning_txt:
+            with st.expander("🧠 Raciocínio do Agente", expanded=False):
+                st.markdown(reasoning_txt)
+
         # SQL expander under bubble when present
         if res.get("sql"):
             with st.expander("SQL executado", expanded=False):
