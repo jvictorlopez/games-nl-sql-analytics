@@ -5,6 +5,7 @@ services:
       - .env
     environment:
       - CSV_PATH=${GAMES_CSV_PATH:-/app/data/base_jogos.csv}
+      - DATASET_PATH=${GAMES_CSV_PATH:-/app/data/base_jogos.csv}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ALLOW_WEB=${ALLOW_WEB:-false}
     ports:
