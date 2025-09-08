@@ -121,7 +121,7 @@ with tabs[1]:
         prompt = st.text_input(
             label="Pergunte em linguagem natural",
             value="",
-            placeholder="Ex.: top 10 vendas no japão em 2010? qual a média da franquia Zelda? em quais plataformas saiu The Witcher 3? quantos jogos de ps4 temos no dataset?",
+            placeholder="Ex.: top 10 vendas no japão em 2010 / qual a média da franquia Zelda? / em quais plataformas saiu The Witcher 3? / quantos jogos de ps4 temos no dataset?",
             label_visibility="collapsed",
             key="nlq_input",
         )
