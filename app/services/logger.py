@@ -20,4 +20,3 @@ class timeblock:
     def __exit__(self, exc_type, exc, tb):
         dt = (time.perf_counter() - self.start)*1000
         self.logger.info(f"{self.msg} took {dt:.1f} ms")
-

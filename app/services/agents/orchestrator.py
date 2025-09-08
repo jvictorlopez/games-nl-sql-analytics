@@ -148,6 +148,9 @@ def _detect_metric(q: str) -> str:
         return "jp"
     if "europ" in ql:
         return "eu"
+    # prioritize NA phrases over generic 'vendas' matching global
+    if ("américa do norte" in ql) or ("america do norte" in ql) or ("north america" in ql):
+        return "na"
     for key, toks in ME_SALES.items():
         if _contains_any(ql, toks):
             return key
@@ -422,6 +425,9 @@ def route_and_execute(q: str) -> Dict[str, Any]:
                 "columns": cols,
                 "rows": rows,
                 "rows_dict": rows_dict,
+                "data": {
+                    "result": (rows[0][0] if (len(cols) == 1 and len(rows) == 1) else (rows_dict or rows))
+                },
             }
         # --- END NEW BRANCH ---
 

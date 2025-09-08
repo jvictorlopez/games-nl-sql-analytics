@@ -15,4 +15,4 @@ httpx==0.27.2
 openai==1.47.0
 duckduckgo-search==6.3.5
 sqlparse==0.5.1
-
+duckdb
