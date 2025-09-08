@@ -256,6 +256,45 @@ def reason_and_plan(q: str) -> Tuple[Dict[str, Any], str]:
     return plan, reasoning
 
 
+def _format_franchise_avg_nl(question: str, meta: dict, rows_count: int) -> str:
+    """
+    Gera o resumo em pt-BR para média de franquia quando houver ponderações.
+    Usa meta['franchise_weighted'] e não depende de LLM.
+    Retorna '' se não houver dados (deixa fallback original).
+    """
+    if not meta:
+        return ""
+    fw = (meta or {}).get("franchise_weighted") or {}
+    try:
+        crit = fw.get("critic_wavg")
+        usr  = fw.get("user_wavg")
+        tot  = fw.get("total_titles")
+        csum = fw.get("critic_count_sum")
+        usum = fw.get("user_count_sum")
+
+        if rows_count and crit is not None and usr is not None and tot:
+            # Tentativa simples de extrair o nome da franquia da pergunta
+            # exemplos: "franquia Zelda", "média da franquia Mario"
+            q = question or ""
+            m = re.search(r"franq[uíi]a\s+([A-Za-z0-9:\-\s']+)", q, flags=re.IGNORECASE)
+            if m:
+                raw = m.group(1).strip()
+                # corta em pontuação para evitar arrasto de frase
+                raw = re.split(r"[?.!,:;(){}\[\]]", raw)[0].strip()
+                franchise = raw[:40] or "franquia"
+            else:
+                franchise = "franquia"
+
+            return (
+                f"Média ponderada da {franchise}: "
+                f"Críticos {crit:.1f} (n={csum}), "
+                f"Usuários {usr:.1f} (n={usum}), "
+                f"{tot} títulos considerados."
+            )
+    except Exception:
+        pass
+    return ""
+
 def _ensure_presence_or_mark_not_found(plan: Dict[str, Any]) -> Dict[str, Any]:
     intent = (plan.get("intent") or "").lower()
     filters = plan.get("filters") or {}
@@ -389,7 +428,58 @@ def route_and_execute(q: str) -> Dict[str, Any]:
         res = sql_agent.llm_build_sql_and_run(q, plan)
         metric_lbl = (res.get("meta") or {}).get("metric_label", "Global_Sales")
         nl = nlg_agent.summarize_in_domain(q, {"kind": intent, **plan}, res.get("rows_dict", []), metric_lbl)
-        return {"mode": MODE, "route":"sql", "kind": intent, "reasoning": reason_text, "nl": nl, **res}
+        # Fix NL formatting for franchise_avg when weighted meta is available
+        if intent == "franchise_avg":
+            meta_obj = res.get("meta", {}) or {}
+            fixed_nl = _format_franchise_avg_nl(question=q, meta=meta_obj, rows_count=len(res.get("rows") or []))
+            if not fixed_nl:
+                fw = meta_obj.get("franchise_weighted") or {}
+                try:
+                    crit = fw.get("critic_wavg")
+                    usr = fw.get("user_wavg")
+                    tot_titles = fw.get("total_titles")
+                    c_sum = fw.get("critic_count_sum")
+                    u_sum = fw.get("user_count_sum")
+                    if crit is not None and usr is not None and tot_titles:
+                        # simple franchise name extraction
+                        franchise = None
+                        qlow = (q or "").lower()
+                        for token in ["franquia", "franchise", "série", "serie"]:
+                            if token in qlow:
+                                try:
+                                    tail = qlow.split(token, 1)[1].strip()
+                                    franchise = tail.strip(" ?.!,:;\"'()[]{}").split()[0].capitalize()
+                                    break
+                                except Exception:
+                                    pass
+                        if not franchise:
+                            franchise = "franquia"
+                        fixed_nl = (
+                            f"Média ponderada da {franchise}: "
+                            f"Críticos {float(crit):.1f} (n={int(c_sum) if c_sum is not None else c_sum}), "
+                            f"Usuários {float(usr):.1f} (n={int(u_sum) if u_sum is not None else u_sum}), "
+                            f"{int(tot_titles)} títulos considerados."
+                        )
+                except Exception:
+                    fixed_nl = ""
+            if fixed_nl:
+                nl = fixed_nl
+        # Ensure our NL overrides any 'nl' present inside res
+        out = {**res, "mode": MODE, "route":"sql", "kind": intent, "reasoning": reason_text, "nl": nl}
+        # --- FIX NL PARA FRANCHISE AVG (só se houver dados/ponderações) ---
+        try:
+            if (out.get("kind") == "franchise_avg"):
+                fixed_nl = _format_franchise_avg_nl(
+                    question=q,
+                    meta=out.get("meta", {}) or {},
+                    rows_count=len(out.get("rows") or [])
+                )
+                if fixed_nl:
+                    out["nl"] = fixed_nl
+        except Exception:
+            pass
+        # --- FIM FIX ---
+        return out
 
     except Exception as e:
         return {"mode": MODE, "route": "error", "kind": "error", "nl": "Ocorreu um erro ao processar sua pergunta.", "error": str(e), "columns": [], "rows": [], "chart": None}

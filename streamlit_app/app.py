@@ -104,7 +104,6 @@ with tabs[0]:
 
 # --- NL -> SQL Chat ----------------------------------------------------------
 with tabs[1]:
-    import time
     from urllib.parse import quote
 
     # State machine for prompt -> pending -> result
@@ -135,18 +134,6 @@ with tabs[1]:
         st.session_state.agent["pending"] = True
         st.rerun()
 
-    # Worker: on the rerun after submit, do the "thinking", call API, store result, rerun
-    def render_thinking(total_sec: float = 3.0):
-        # Simulate lighting/shimmer with status steps (x/3 each)
-        step = max(0.1, total_sec / 3.0)
-        with st.status("🤖 Processando qual agente chamar…", state="running") as status:
-            time.sleep(step)
-            status.update(label="🤖 Interpretando intenção do usuário…", state="running")
-            time.sleep(step)
-            status.update(label="🤖 Preparando resposta…", state="running")
-            time.sleep(step)
-            status.update(label="Pronto!", state="complete")
-
     def call_api(nlq: str) -> dict:
         try:
             r = requests.get(f"{API}/ask?q={quote(nlq)}", timeout=30)
@@ -156,9 +143,7 @@ with tabs[1]:
             return {"route": "error", "reason": f"Erro ao consultar API: {e}"}
 
     if st.session_state.agent["pending"] and st.session_state.agent["prompt"]:
-        # show UX thinking
-        render_thinking(3.0)
-        # do the actual call
+        # do the actual call (no extra artificial delay)
         res = call_api(st.session_state.agent["prompt"])
         # commit result
         st.session_state.agent["result"] = res
