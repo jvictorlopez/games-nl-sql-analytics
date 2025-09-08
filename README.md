@@ -123,6 +123,9 @@ Observações:
 
 ## Como Rodar
 
+- Inserir chave OpenAI:
+  Criar .env e inserir OPENAI_API_KEY="CHAVE"
+
 - Local (venv):
   ```bash
   python3 -m venv .venv
